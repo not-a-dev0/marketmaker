@@ -1,15 +1,15 @@
 package config
 
 import (
-	"code.google.com/p/gcfg"
+	"gopkg.in/gcfg.v1"
 	"log"
 	"os"
 )
 
 type Config struct {
 	Coinbase struct {
-		Key    string
-		Secret string
+		Key        string
+		Secret     string
 		Passphrase string
 	}
 }

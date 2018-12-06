@@ -1,35 +1,35 @@
 package model
 
 import (
-	exchange "github.com/preichenberger/go-coinbase-exchange"
 	"fmt"
+	"github.com/pborman/uuid"
+	exchange "github.com/preichenberger/go-coinbase-exchange"
 	"log"
 	"math"
 	"sync"
-	"code.google.com/p/go-uuid/uuid"
 	"time"
 )
 
 type MyOrders struct {
 	sync.RWMutex
-	client *exchange.Client
-	book *LocalBook
+	client       *exchange.Client
+	book         *LocalBook
 	availableBtc float64
 	availableUsd float64
-	pendingBuys map[string]exchange.Order
+	pendingBuys  map[string]exchange.Order
 	pendingSells map[string]exchange.Order
-	myBuys map[string]exchange.Order
-	mySells map[string]exchange.Order
+	myBuys       map[string]exchange.Order
+	mySells      map[string]exchange.Order
 }
 
 func NewMyOrders(client *exchange.Client, book *LocalBook) *MyOrders {
 	return &MyOrders{
-		client: client,
-		book: book,
-		pendingBuys: make(map[string]exchange.Order),
+		client:       client,
+		book:         book,
+		pendingBuys:  make(map[string]exchange.Order),
 		pendingSells: make(map[string]exchange.Order),
-		myBuys: make(map[string]exchange.Order),
-		mySells: make(map[string]exchange.Order),
+		myBuys:       make(map[string]exchange.Order),
+		mySells:      make(map[string]exchange.Order),
 	}
 }
 
@@ -42,18 +42,18 @@ func (mo *MyOrders) StartTicking() {
 
 	for {
 		select {
-			case <- accountTick:
-				mo.RefreshAccount()
-			case <- ordersTick:
-				mo.RefreshOrders()
-			//case <- protectTick:
-			case <- refillTick:
-				mo.ProtectBuys()
-				mo.ProtectAsks()
-				mo.RefillBids()
-				mo.RefillAsks()
-			case <- printTick:
-				log.Printf("%v", mo)
+		case <-accountTick:
+			mo.RefreshAccount()
+		case <-ordersTick:
+			mo.RefreshOrders()
+		//case <- protectTick:
+		case <-refillTick:
+			mo.ProtectBuys()
+			mo.ProtectAsks()
+			mo.RefillBids()
+			mo.RefillAsks()
+		case <-printTick:
+			log.Printf("%v", mo)
 		}
 	}
 }
@@ -67,9 +67,9 @@ func (mo *MyOrders) RefreshAccount() {
 	mo.Lock()
 	for _, a := range accounts {
 		if a.Currency == "BTC" {
-			mo.availableBtc = a.Available
+			mo.availableBtc = StringToFloat64(a.Available)
 		} else if a.Currency == "USD" {
-			mo.availableUsd = a.Available
+			mo.availableUsd = StringToFloat64(a.Available)
 		}
 	}
 	mo.Unlock()
@@ -113,11 +113,11 @@ func (mo *MyOrders) CancelAllOrders() {
 	mo.RLock()
 	for id, o := range mo.myBuys {
 		orderIds = append(orderIds, id)
-		usd += o.Price * o.Size
+		usd += StringToFloat64(o.Price) * StringToFloat64(o.Size)
 	}
 	for id, o := range mo.mySells {
 		orderIds = append(orderIds, id)
-		btc += o.Size
+		btc += StringToFloat64(o.Size)
 	}
 	mo.RUnlock()
 	mo.updateAvailableUsd(usd)
@@ -147,22 +147,22 @@ func (mo *MyOrders) RefillBids() {
 	size := 0.01 // TODO temp conservative size
 	if size >= 0.01 {
 		current := price
-		for x := 0; mo.totalBuyValue() < mo.currentBtcValue() / 2; x++ {
+		for x := 0; mo.totalBuyValue() < mo.currentBtcValue()/2; x++ {
 			order := exchange.Order{
 				ClientOID: uuid.New(),
-				Price: roundPlus(current, 2),
-				Size: roundPlus(size, 8),
-				Side: "buy",
+				Price:     Float64ToString(roundPlus(current, 2)),
+				Size:      Float64ToString(roundPlus(size, 8)),
+				Side:      "buy",
 				ProductId: "BTC-USD",
 			}
-			if mo.getAvailableUsd() >= order.Price * order.Size {
+			if mo.getAvailableUsd() >= StringToFloat64(order.Price)*StringToFloat64(order.Size) {
 				mo.addPendingBuy(order)
 				orders = append(orders, order)
-				mo.updateAvailableUsd(-1 * order.Price * order.Size)
+				mo.updateAvailableUsd(-1 * StringToFloat64(order.Price) * StringToFloat64(order.Size))
 			} else {
 				break
 			}
-			current -= 0.01 * float64(x % 3)
+			current -= 0.01 * float64(x%3)
 		}
 		if len(orders) > 0 {
 			var wg sync.WaitGroup
@@ -174,7 +174,7 @@ func (mo *MyOrders) RefillBids() {
 					if err != nil {
 						log.Printf("failed to place bid: %v", err)
 						mo.removePendingBuy(o.ClientOID)
-						mo.updateAvailableUsd(o.Price * o.Size)
+						mo.updateAvailableUsd(StringToFloat64(o.Price) * StringToFloat64(o.Size))
 					}
 					wg.Done()
 				}(&wg, o)
@@ -188,7 +188,7 @@ func (mo *MyOrders) HasBuyAtPrice(price float64) bool {
 	mo.RLock()
 	defer mo.RUnlock()
 	for _, o := range mo.myBuys {
-		if roundPlus(price, 2) == roundPlus(o.Price, 2) {
+		if roundPlus(price, 2) == roundPlus(StringToFloat64(o.Price), 2) {
 			return true
 		}
 	}
@@ -204,22 +204,22 @@ func (mo *MyOrders) RefillAsks() {
 	size := 0.01 // TODO temp conservative size
 	if size >= 0.01 {
 		current := price
-		for x := 0; mo.totalSellValue() < mo.currentBtcValue() / 2; x++ {
+		for x := 0; mo.totalSellValue() < mo.currentBtcValue()/2; x++ {
 			order := exchange.Order{
 				ClientOID: uuid.New(),
-				Price: roundPlus(current, 2),
-				Size: roundPlus(size, 8),
-				Side: "sell",
+				Price:     Float64ToString(roundPlus(current, 2)),
+				Size:      Float64ToString(roundPlus(size, 8)),
+				Side:      "sell",
 				ProductId: "BTC-USD",
 			}
-			if mo.getAvailableBtc() >= order.Size {
+			if mo.getAvailableBtc() >= StringToFloat64(order.Size) {
 				mo.addPendingSell(order)
 				orders = append(orders, order)
-				mo.updateAvailableBtc(-1 * order.Size)
+				mo.updateAvailableBtc(-1 * StringToFloat64(order.Size))
 			} else {
 				break
 			}
-			current += 0.01 * float64(x % 3)
+			current += 0.01 * float64(x%3)
 		}
 		if len(orders) > 0 {
 			var wg sync.WaitGroup
@@ -231,7 +231,7 @@ func (mo *MyOrders) RefillAsks() {
 					if err != nil {
 						log.Printf("failed to place ask: %v", err)
 						mo.removePendingSell(o.ClientOID)
-						mo.updateAvailableBtc(o.Size)
+						mo.updateAvailableBtc(StringToFloat64(o.Size))
 					}
 					wg.Done()
 				}(&wg, o)
@@ -260,7 +260,7 @@ func (mo *MyOrders) ProtectBuys() {
 	mo.RLock()
 	if mo.myBuys != nil {
 		for _, o := range mo.myBuys {
-			if o.Price < bestBid - 0.04 {
+			if o.Price < bestBid-0.04 {
 				log.Printf("canceling bid %v because %0.2f is too low", o.Id, o.Price)
 				ordersToCancel = append(ordersToCancel, o)
 			}
@@ -273,7 +273,7 @@ func (mo *MyOrders) ProtectBuys() {
 		for _, o := range ordersToCancel {
 			go func(wg *sync.WaitGroup, o exchange.Order) {
 				mo.removeBuy(o.Id)
-				mo.updateAvailableUsd(o.Price * o.Size)
+				mo.updateAvailableUsd(o.Price * StringToFloat64(o.Size))
 				mo.client.CancelOrder(o.Id)
 				wg.Done()
 			}(&wg, o)
@@ -290,7 +290,7 @@ func (mo *MyOrders) ProtectAsks() {
 	mo.RLock()
 	if mo.mySells != nil {
 		for _, o := range mo.mySells {
-			if o.Price > bestAsk + 0.04 {
+			if o.Price > bestAsk+0.04 {
 				log.Printf("canceling ask %v because %0.2f is too high", o.Id, o.Price)
 				ordersToCancel = append(ordersToCancel, o)
 			}
@@ -303,7 +303,7 @@ func (mo *MyOrders) ProtectAsks() {
 		for _, o := range ordersToCancel {
 			go func(wg *sync.WaitGroup, o exchange.Order) {
 				mo.removeSell(o.Id)
-				mo.updateAvailableBtc(o.Size)
+				mo.updateAvailableBtc(StringToFloat64(o.Size))
 				mo.client.CancelOrder(o.Id)
 				wg.Done()
 			}(&wg, o)
@@ -529,7 +529,7 @@ func round(f float64) float64 {
 	return math.Floor(f + .5)
 }
 
-func roundPlus(f float64, places int) (float64) {
+func roundPlus(f float64, places int) float64 {
 	shift := math.Pow(10, float64(places))
-	return round(f * shift) / shift;
+	return round(f*shift) / shift
 }

@@ -2,14 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/beaquant/marketmaker/config"
+	"github.com/beaquant/marketmaker/model"
+	"github.com/gorilla/websocket"
+	exchange "github.com/preichenberger/go-coinbase-exchange"
 	"log"
 	"net/http"
-	"github.com/gorilla/websocket"
-	"github.com/sirsean/marketmaker/config"
-	"github.com/sirsean/marketmaker/model"
-	exchange "github.com/preichenberger/go-coinbase-exchange"
-	"os/signal"
 	"os"
+	"os/signal"
 	"syscall"
 )
 
@@ -81,11 +81,11 @@ func subscribe() *websocket.Conn {
 	log.Printf("connected!")
 
 	type Subscribe struct {
-		Type string `json:"type"`
+		Type      string `json:"type"`
 		ProductId string `json:"product_id"`
 	}
 	subscription := Subscribe{
-		Type: "subscribe",
+		Type:      "subscribe",
 		ProductId: "BTC-USD",
 	}
 	msg, _ := json.Marshal(subscription)
